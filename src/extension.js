@@ -10,18 +10,21 @@ import { FileSelectorProvider } from "./fileSelector.js";
  * @param {vscode.ExtensionContext} context
  */
 export function activate(context) {
-    console.log('Congratulations, your extension "verba" is now active!');
     const provider = new FileSelectorProvider();
     const treeView = vscode.window.createTreeView("verba.fileSelector", {
         treeDataProvider: provider,
         manageCheckboxStateManually: true,
     });
-    treeView.onDidChangeCheckboxState((event) => {
-        for (const [node, state] of event.items) {
-            node.checked = state === vscode.TreeItemCheckboxState.Checked;
-            provider.refresh(node);
+    treeView.onDidChangeCheckboxState(async (event) => {
+        for (const [entryNode, checkState] of event.items) {
+            const checked = checkState === vscode.TreeItemCheckboxState.Checked;
+            await provider.cascade(entryNode.uri, entryNode.type, checked);
         }
+        provider.refresh();
     });
+    // 把 treeView 加入 context 订阅，以便在插件停用时，
+    // 由 vscode 自动清理，以免造成内存溢出。
+    context.subscriptions.push(treeView);
 }
 
 // This method is called when your extension is deactivated
