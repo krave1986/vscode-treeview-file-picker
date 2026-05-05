@@ -3,12 +3,12 @@ import * as vscode from "vscode";
 import { EntryNode } from "./entryNode.js";
 
 export class FileSelectorProvider {
-    // 获取针对 Verba 的用户设置
-    // include: 作为首要白名单逻辑，先明确哪些文件需要展示
-    // exclude: 作为次要黑名单逻辑，表示：需要在白名单的基础上，从白名单中排除哪些文件
-    // collapse: 在确定最终需要包含哪些文件的基础上，再确定哪些目录是需要默认展开的
+    // Reads the tvfp configuration from VS Code settings.
+    // include: primary whitelist — defines which files should be visible
+    // exclude: secondary blacklist — removes files from the whitelist
+    // collapse: determines which directories are collapsed by default (everything else expands)
     #getConfig() {
-        const config = vscode.workspace.getConfiguration("verba");
+        const config = vscode.workspace.getConfiguration("tvfp");
         return {
             included: config.get("include"),
             excluded: config.get("exclude"),
@@ -16,61 +16,66 @@ export class FileSelectorProvider {
         };
     }
 
-    // 用于构造属性结构中的每一个具体节点
-    // 可以把 treeItem 大概理解为：带UI状态的 EntryNode
+    // Builds a TreeItem from an EntryNode.
+    // A TreeItem can be thought of as an EntryNode with UI state attached.
     #buildTreeItem(entry, collapsibleState) {
         const entryLabel = entry.uri.path.split("/").at(-1);
         const item = new vscode.TreeItem(entryLabel, collapsibleState);
-        // 给 item 设置 id ，以便 vscode 在管理节点的 展开\关闭 状态时，能够记住节点的对应状态
+        // Set a stable id so VS Code can preserve expand/collapse state across refreshes.
         item.id = entry.uri.toString();
         item.resourceUri = entry.uri;
-        // 通过我们自己维护的集合 #checkedUris ，来找出当前条目是否被勾选
+        // Derive checkbox state from #checkedUris — the single source of truth.
         item.checkboxState = this.#checkedUris.has(item.id)
             ? vscode.TreeItemCheckboxState.Checked
             : vscode.TreeItemCheckboxState.Unchecked;
         return item;
     }
 
-    // 存放被用户勾选的文件 URIs
+    // Stores the URIs of all checked entries.
     #checkedUris = new Set();
 
-    // 条目打勾
+    // Marks an entry as checked.
     check(uriString) {
         this.#checkedUris.add(uriString);
     }
 
-    // 条目取消勾选
+    // Marks an entry as unchecked.
     uncheck(uriString) {
         this.#checkedUris.delete(uriString);
     }
 
-    // 这里的 entry 参数全都是我们所定义的 EntryNode 实例
-    // 通过 getTreeItem 函数，vscode 会得到 EntryNode 与 item 的一一对应的关系
+    // All entry parameters here are EntryNode instances.
+    // VS Code calls getTreeItem for each EntryNode returned by getChildren,
+    // establishing a one-to-one mapping between data and view.
     getTreeItem(entry) {
-        // 如果是文件条目，则没有展开/折叠的概念，直接返回
+        // Files have no expand/collapse concept — return immediately.
         if (entry.type !== vscode.FileType.Directory) {
             return this.#buildTreeItem(
                 entry,
                 vscode.TreeItemCollapsibleState.None,
             );
         }
-        // 如果是目录条目 ↓
 
-        // 这里的 rootUri 必然存在，
-        // 保证来自 getChildren() 的早返回：`if (!folder) return []`
+        // Directory entry handling below.
+
+        // rootUri is guaranteed to exist here —
+        // ensured by the early return in getChildren(): `if (!folder) return []`
         const rootUri = this.#getRootUri();
-        // 计算相对于工作区根目录的路径，末尾加 "/" 以匹配目录模式（如 src/time/）
+
+        // Compute the path relative to the workspace root, with a trailing "/"
+        // to match directory glob patterns (e.g. src/time/).
+        //
+        // slice(start) returns the substring starting at the given index.
+        // Since indices are zero-based, rootUri.path.length points to the
+        // character just after the workspace root — adding 1 skips the slash,
+        // giving us the first character of the relative path.
         const relativePath =
-            // 这里调用的是字符串的 slice(start) 方法，
-            // start 表示返回的子字符串的第一个字符，在原字符串中的索引位置。
-            // 由于索引是从0开始的，uri长度正好到工作区根目录后面的斜杠，
-            // 再 +1 的话，就正好从各子目录的相对路径的第一个字符开始了。
-            // 于是，整个 relativePath 就是从相对路径的第1个字符开始，
-            // 一直到结束，最后再跟上一个斜杠。完美。
             entry.uri.path.slice(rootUri.path.length + 1) + "/";
+
         const { collapsed } = this.#getConfig();
         const isCollapsed = picomatch(collapsed);
-        // 默认全部展开，collapsed 是例外清单
+
+        // Default to expanded; collapsed is an opt-in exception list.
         return this.#buildTreeItem(
             entry,
             isCollapsed(relativePath)
@@ -80,32 +85,36 @@ export class FileSelectorProvider {
     }
 
     #getRootUri() {
-        // @ts-ignore — workspaceFolders 在此处，根据我们的业务逻辑，必然存在
+        // @ts-ignore — workspaceFolders is guaranteed to exist by our business logic.
         return vscode.workspace.workspaceFolders[0].uri;
     }
 
-    // 除项目根目录外，这里传入的 entry 参数也都是我们定义的 EntryNode 实例
+    // All entry parameters (except the workspace root) are EntryNode instances.
     async getChildren(entry) {
         if (!entry) {
             const folder = vscode.workspace.workspaceFolders?.[0];
             if (!folder) return [];
-            // 根节点：把工作区根目录伪装成 EntryNode，让后续代码统一处理
+            // Root node: wrap the workspace root as a plain object
+            // so the rest of the method can handle it uniformly.
             entry = { uri: folder.uri };
         }
+
         const entries = await this.#readEntries(entry.uri);
-        // entries 是一个大数组，每个元素呢，又都是一个子数组。
-        // 每个子数组代表一个条目，格式是 [name, type]。
-        // name 是文件或目录的名称，只是名称，不含路径。
-        // type 是 vscode.FileType 枚举的数值：
-        //  1 → vscode.FileType.File，普通文件
-        //  2 → vscode.FileType.Directory，目录
+
+        // entries is an array of [name, type] tuples.
+        // name: the entry name only — no path prefix.
+        // type: a vscode.FileType enum value:
+        //   1 → vscode.FileType.File
+        //   2 → vscode.FileType.Directory
         const filtered = this.#filterEntries(entries);
+
         filtered.sort(([nameA, typeA], [nameB, typeB]) => {
             if (typeA !== typeB) {
                 return typeA === vscode.FileType.Directory ? -1 : 1;
             }
             return nameA.localeCompare(nameB);
         });
+
         return filtered.map(
             ([name, type]) =>
                 new EntryNode(vscode.Uri.joinPath(entry.uri, name), type),
@@ -113,18 +122,19 @@ export class FileSelectorProvider {
     }
 
     #emitter = new vscode.EventEmitter();
-    // 逻辑：vscode 内部定义了这样一个类型的事件，类型为 onDidChangeTreeData ，
-    // 下面的赋值操作，就是在告诉 vscode ：this.#emitter 就是这个类型的事件，
-    // 如果该事件被触发，vscode 知道该如何去内部处理这个类型的事件。
+
+    // VS Code defines the onDidChangeTreeData event type internally.
+    // By assigning this.#emitter.event to onDidChangeTreeData, we tell VS Code:
+    // "this emitter represents that event — handle it accordingly when fired."
     onDidChangeTreeData = this.#emitter.event;
 
+    // Filters raw directory entries using the include/exclude configuration.
+    // include sets the scope; exclude removes entries from that scope.
+    // The filtered result contains only entries that should be visible in the panel.
     #filterEntries(entries) {
         const { included, excluded } = this.#getConfig();
         const isIncluded = picomatch(included);
         const isExcluded = picomatch(excluded);
-        // 先以 include 为门槛，确定哪些条目进入候选
-        // 再以 exclude 为过滤，从候选中剔除不需要的
-        // filtered 变量存放了过滤后，真正要在面板中展示的条目，包括目录和文件
         return entries.filter(([name, type]) => {
             const testPath =
                 type === vscode.FileType.Directory ? name + "/" : name;
@@ -136,11 +146,13 @@ export class FileSelectorProvider {
         return vscode.workspace.fs.readDirectory(uri);
     }
 
-    // 而我们需要做的，就是去根据一定的机制去触发这个事件。
+    // Fires the onDidChangeTreeData event to trigger a re-render.
+    // Pass a specific node to refresh only that node; pass nothing to refresh the entire tree.
     refresh(node = undefined) {
         this.#emitter.fire(node);
     }
 
+    // Recursively checks or unchecks all visible descendants of a directory.
     async #cascadeDownward(uri, checked) {
         const entries = this.#filterEntries(await this.#readEntries(uri));
         for (const [name, type] of entries) {
@@ -149,12 +161,16 @@ export class FileSelectorProvider {
                 ? this.check(childUri.toString())
                 : this.uncheck(childUri.toString());
             if (type === vscode.FileType.Directory) {
-                // 必须 await，确保递归完全填满 #checkedUris 后，外层才继续执行 refresh()
+                // Must await — ensures #checkedUris is fully populated
+                // before the outer caller proceeds to refresh().
                 await this.#cascadeDownward(childUri, checked);
             }
         }
     }
 
+    // Walks up the directory tree, updating each ancestor's checked state.
+    // propagateUncheckedUpward: when true, all ancestors are unchecked immediately
+    // without inspecting their children — short-circuits all remaining readDirectory calls.
     async #cascadeUpward(uri, rootUri, propagateUncheckedUpward) {
         const parentUri = vscode.Uri.joinPath(uri, "..");
         if (parentUri.path === rootUri.path) return;
@@ -177,6 +193,9 @@ export class FileSelectorProvider {
         await this.#cascadeUpward(parentUri, rootUri, propagateUncheckedUpward);
     }
 
+    // Public entry point for cascade operations.
+    // Checks/unchecks the entry itself, then fans out downward (directories only)
+    // and upward (all entries) in parallel.
     async cascade(uri, entryType, checked) {
         checked ? this.check(uri.toString()) : this.uncheck(uri.toString());
         const rootUri = this.#getRootUri();
@@ -188,6 +207,7 @@ export class FileSelectorProvider {
         ]);
     }
 
+    // Returns the list of all currently checked URIs as an array.
     getCheckedUris() {
         return [...this.#checkedUris];
     }

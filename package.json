@@ -1,7 +1,7 @@
 {
-    "name": "verba",
-    "displayName": "verba",
-    "description": "NDY",
+    "name": "vscode-treeview-file-picker",
+    "displayName": "TreeView File Picker",
+    "description": "A VS Code extension starter for building a workspace file selector using the native TreeView API — with checkboxes, cascade selection, glob filtering, and theme-aware icons.",
     "version": "0.0.1",
     "type": "module",
     "engines": {
@@ -14,9 +14,9 @@
     "main": "./src/extension.js",
     "contributes": {
         "configuration": {
-            "title": "Verba",
+            "title": "TreeView File Picker",
             "properties": {
-                "verba.include": {
+                "tvfp.include": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -26,7 +26,7 @@
                     ],
                     "description": "Glob patterns for files to show in the file selector."
                 },
-                "verba.exclude": {
+                "tvfp.exclude": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -41,7 +41,7 @@
                     ],
                     "description": "Glob patterns for files to hide from the file selector."
                 },
-                "verba.collapse": {
+                "tvfp.collapse": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -52,9 +52,9 @@
             }
         },
         "views": {
-            "verba-panel": [
+            "tvfp-panel": [
                 {
-                    "id": "verba.fileSelector",
+                    "id": "tvfp.fileSelector",
                     "name": "File Selector",
                     "type": "tree",
                     "icon": "assets/panel-icon.svg"
@@ -64,8 +64,8 @@
         "viewsContainers": {
             "activitybar": [
                 {
-                    "id": "verba-panel",
-                    "title": "Verba",
+                    "id": "tvfp-panel",
+                    "title": "TreeView File Picker",
                     "icon": "assets/panel-icon.svg"
                 }
             ]
