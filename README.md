@@ -51,7 +51,7 @@ This is a known VS Code TreeView limitation with no API workaround. A future Web
 
 ### Cascade only applies to visible entries
 
-Entries excluded by your `verba.exclude` glob patterns are not included in cascade operations. What you see is what gets checked.
+Entries excluded by your `tvfp.exclude` glob patterns are not included in cascade operations. What you see is what gets checked.
 
 ---
 
@@ -61,8 +61,8 @@ All settings are workspace-scoped and can be set in `.vscode/settings.json`:
 
 ```json
 {
-    "verba.include": ["**/*"],
-    "verba.exclude": [
+    "tvfp.include": ["**/*"],
+    "tvfp.exclude": [
         "**/.git/",
         "**/node_modules/",
         "**/dist/",
@@ -70,15 +70,15 @@ All settings are workspace-scoped and can be set in `.vscode/settings.json`:
         "**/.vscode/",
         "**/*.vsix"
     ],
-    "verba.collapse": []
+    "tvfp.collapse": []
 }
 ```
 
-| Setting          | Default       | Description                                                                    |
-| ---------------- | ------------- | ------------------------------------------------------------------------------ |
-| `verba.include`  | `["**/*"]`    | Glob patterns for files to show. Acts as the primary whitelist.                |
-| `verba.exclude`  | _(see above)_ | Glob patterns to hide from the tree. Applied after `include`.                  |
-| `verba.collapse` | `[]`          | Glob patterns for directories to collapse by default. Everything else expands. |
+| Setting         | Default       | Description                                                                    |
+| --------------- | ------------- | ------------------------------------------------------------------------------ |
+| `tvfp.include`  | `["**/*"]`    | Glob patterns for files to show. Acts as the primary whitelist.                |
+| `tvfp.exclude`  | _(see above)_ | Glob patterns to hide from the tree. Applied after `include`.                  |
+| `tvfp.collapse` | `[]`          | Glob patterns for directories to collapse by default. Everything else expands. |
 
 **Priority order:** `include` sets the scope → `exclude` removes from scope → `collapse` controls expand state.
 
@@ -90,7 +90,8 @@ All settings are workspace-scoped and can be set in `.vscode/settings.json`:
 2. **Rename** the extension: update `name`, `publisher`, `displayName` in `package.json`
 3. **Replace** the Activity Bar icon at `assets/panel-icon.svg` with your own
 4. **Update** the `contributes.viewsContainers` and `contributes.views` IDs in `package.json` to match your extension name
-5. **Implement** your action in `extension.js` — call `provider.getCheckedUris()` to retrieve the list of selected files, then do whatever you need with them
+5. **Update** the configuration key prefix (`tvfp`) in `package.json` and `src/fileSelector.js` to match your extension name
+6. **Implement** your action in `extension.js` — call `provider.getCheckedUris()` to retrieve the list of selected files, then do whatever you need with them
 
 ```javascript
 // Example: get all checked file URIs
