@@ -1,65 +1,138 @@
-# verba README
+# vscode-treeview-file-picker
 
-This is the README for your extension "verba". After writing up a brief description, we recommend including the following sections.
+A VS Code extension starter for building a **workspace file selector using the native TreeView API** — with checkboxes, cascade selection, glob filtering, and theme-aware icons.
 
-## Features
-
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
-
-For example if there is an image subfolder under your extension project workspace:
-
-\!\[feature X\]\(images/feature-x.png\)
-
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
-
-## Requirements
-
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
-
-## Extension Settings
-
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
-
-## Known Issues
-
-Calling out known issues can help limit users opening duplicate issues against your extension.
-
-## Release Notes
-
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
+If you've ever needed a multi-file picker inside a VS Code sidebar panel, this is the foundation you wish existed when you started.
 
 ---
 
-## Working with Markdown
+## Why this exists
 
-You can author your README using Visual Studio Code.  Here are some useful editor keyboard shortcuts:
+The VS Code TreeView API is powerful but under-documented, especially around checkboxes. Building a production-ready file selector requires solving a series of non-obvious problems:
 
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux)
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux)
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets
+- Checkbox state is **not managed by VS Code** when `manageCheckboxStateManually: true` — you own the state
+- Node instances are **recreated on every refresh** — storing state on the instance will silently lose it
+- Cascade selection (parent → children, children → parent) must be **implemented manually**
+- TreeView nodes need a **stable `id`** to preserve expand/collapse state across refreshes
+- The file system API should use **`vscode.workspace.fs`** (not Node's `fs`) for remote development compatibility
 
-## For more information
+This starter has already solved all of the above.
 
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
+---
 
-**Enjoy!**
+## What's included
+
+- ✅ Sidebar panel with a custom Activity Bar icon
+- ✅ File tree using the native VS Code TreeView API
+- ✅ Multi-select with native checkboxes
+- ✅ Cascade selection: check a directory → all visible children get checked
+- ✅ Reverse cascade: check all children → parent gets checked automatically
+- ✅ Glob-based `include` / `exclude` / `collapse` configuration via VS Code settings
+- ✅ File icons that follow the user's active file icon theme
+- ✅ Compatible with remote development (SSH, WSL, Dev Containers)
+- ✅ Modern JavaScript: ESM, private class fields (`#`), ES2022 class field declarations
+- ✅ No unnecessary dependencies — only [`picomatch`](https://github.com/micromatch/picomatch) for glob matching
+
+---
+
+## Known limitations & design decisions
+
+### No indeterminate (partial) checkbox state
+
+VS Code's `TreeItemCheckboxState` only supports two values: `Checked` and `Unchecked`. There is no native indeterminate (`—`) state.
+
+**Our decision:** A directory with only some children checked displays as `Unchecked`. Only when all visible children are checked does the directory show as `Checked`. This is consistent and predictable, even if it diverges from typical tri-state checkbox behavior.
+
+### Single-click on a directory node selects it, not expands it
+
+When a TreeItem has a `checkboxState`, VS Code changes the single-click behavior on the row label from "expand/collapse" to "select node". Expanding still works via the arrow icon or double-click.
+
+This is a known VS Code TreeView limitation with no API workaround. A future Webview-based implementation would eliminate this constraint.
+
+### Cascade only applies to visible entries
+
+Entries excluded by your `verba.exclude` glob patterns are not included in cascade operations. What you see is what gets checked.
+
+---
+
+## Configuration
+
+All settings are workspace-scoped and can be set in `.vscode/settings.json`:
+
+```json
+{
+    "verba.include": ["**/*"],
+    "verba.exclude": [
+        "**/.git/",
+        "**/node_modules/",
+        "**/dist/",
+        "**/build/",
+        "**/.vscode/",
+        "**/*.vsix"
+    ],
+    "verba.collapse": []
+}
+```
+
+| Setting          | Default       | Description                                                                    |
+| ---------------- | ------------- | ------------------------------------------------------------------------------ |
+| `verba.include`  | `["**/*"]`    | Glob patterns for files to show. Acts as the primary whitelist.                |
+| `verba.exclude`  | _(see above)_ | Glob patterns to hide from the tree. Applied after `include`.                  |
+| `verba.collapse` | `[]`          | Glob patterns for directories to collapse by default. Everything else expands. |
+
+**Priority order:** `include` sets the scope → `exclude` removes from scope → `collapse` controls expand state.
+
+---
+
+## How to use this starter
+
+1. **Fork** this repository
+2. **Rename** the extension: update `name`, `publisher`, `displayName` in `package.json`
+3. **Replace** the Activity Bar icon at `assets/panel-icon.svg` with your own
+4. **Update** the `contributes.viewsContainers` and `contributes.views` IDs in `package.json` to match your extension name
+5. **Implement** your action in `extension.js` — call `provider.getCheckedUris()` to retrieve the list of selected files, then do whatever you need with them
+
+```javascript
+// Example: get all checked file URIs
+const checkedUris = provider.getCheckedUris();
+```
+
+---
+
+## Architecture overview
+
+```
+extension.js              — activation, TreeView registration, event wiring
+src/
+  fileSelector.js         — FileSelectorProvider (TreeDataProvider implementation)
+  entryNode.js            — EntryNode data model (uri + type)
+assets/
+  panel-icon.svg          — Activity Bar icon
+```
+
+### Key design decisions
+
+| Decision                                                        | Reason                                                                                                      |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| State stored in `#checkedUris` (a `Set`), not on node instances | Node instances are recreated on every `getChildren` call                                                    |
+| `TreeItem.id = entry.uri.toString()`                            | Stable ID lets VS Code preserve expand/collapse state across refreshes                                      |
+| `manageCheckboxStateManually: true`                             | VS Code's automatic cascade only works for already-loaded nodes; collapsed directories are silently skipped |
+| `vscode.workspace.fs` instead of Node's `fs`                    | Works in remote development environments (SSH, WSL, Dev Containers)                                         |
+| `picomatch` for glob matching                                   | Zero dependencies, actively maintained, used internally by major tools                                      |
+
+---
+
+## Requirements
+
+- VS Code 1.73 or later (native checkbox API)
+- Node.js 18 or later
+
+---
+
+## License
+
+MIT — fork freely.
+
+---
+
+_Built by [@krave1986](https://github.com/krave1986)_
